@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Screenshot Plugin</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div class="popup-container">
+      <header class="popup-header">
+        <h1 class="popup-title">截图工具</h1>
+      </header>
+
+      <main class="popup-main">
+        <div class="mode-selector">
+          <label for="capture-mode">截图模式：</label>
+          <select id="capture-mode" class="mode-select">
+            <option value="visible">可视区域</option>
+            <option value="full">整个页面</option>
+          </select>
+        </div>
+
+        <div class="action-buttons">
+          <button id="capture-btn" class="capture-button">
+            <span class="button-icon">📷</span>
+            <span class="button-text">截取</span>
+          </button>
+
+          <button id="history-btn" class="history-button">
+            <span class="button-icon">📁</span>
+            <span class="button-text">历史记录</span>
+          </button>
+        </div>
+
+        <div id="status" class="status-message" style="display: none">
+          <span id="status-text"></span>
+        </div>
+
+        <div id="preview" class="preview-container" style="display: none">
+          <img id="preview-image" class="preview-image" alt="Screenshot preview" />
+          <div class="preview-actions">
+            <button id="download-btn" class="download-button">下载</button>
+            <button id="close-preview-btn" class="close-button">关闭</button>
+          </div>
+        </div>
+      </main>
+
+      <footer class="popup-footer">
+        <div class="footer-links">
+          <a href="#" id="options-link" class="footer-link">设置</a>
+          <span class="separator">|</span>
+          <a href="#" id="help-link" class="footer-link">帮助</a>
+        </div>
+      </footer>
+    </div>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

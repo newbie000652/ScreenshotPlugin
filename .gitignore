@@ -1,0 +1,64 @@
+# ─── Node.js & 包管理 ─────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ─── 构建产物 & 缓存 ─────────────────────────────────────────
+dist/           # Vite 默认输出目录
+build/          # 备用输出
+.vite/          # Vite 缓存
+.cache/         # 一般缓存目录
+*.tsbuildinfo   # TypeScript 增量编译信息
+
+# vite-plugin-static-copy 临时目录
+static-copy-temp/
+
+# ─── 环境 & 配置 ─────────────────────────────────────────────
+.env
+.env.*.local
+
+# ─── 日志 & 报告 ─────────────────────────────────────────────
+*.log
+logs/
+coverage/       # 测试覆盖率
+*.lcov
+playwright-report/
+
+# ─── 编辑器 & IDE ────────────────────────────────────────────
+.vscode/
+.idea/
+*.sublime-*
+*.code-workspace
+
+# JetBrains Rider/Resharper
+*.DotSettings.user
+
+# ─── 操作系统 ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── 临时文件 ────────────────────────────────────────────────
+*.tmp
+*.temp
+~$*             # Office 临时文件
+
+# ─── WebExtension 打包 ────────────────────────────────────────
+*.xpi
+*.crx
+
+# ─── 其他常见忽略项 ───────────────────────────────────────────
+# TypeScript 输出文件
+*.js
+*.d.ts
+*.map
+
+# Markdown 编辑器临时文件
+*.~markdown
+
+# Lock 文件（如果不需要可以删除对应行）
+# yarn.lock
+# pnpm-lock.yaml

@@ -1,0 +1,330 @@
+/* Popup Styles for Screenshot Plugin */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #333;
+  background: #f8f9fa;
+}
+
+.popup-container {
+  width: 320px;
+  min-height: 400px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+/* Header */
+.popup-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 16px 20px;
+  text-align: center;
+}
+
+.popup-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* Main Content */
+.popup-main {
+  padding: 20px;
+}
+
+/* Mode Selector */
+.mode-selector {
+  margin-bottom: 20px;
+}
+
+.mode-selector label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: #555;
+}
+
+.mode-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 2px solid #e1e5e9;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.mode-select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* Action Buttons */
+.action-buttons {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.capture-button,
+.history-button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.capture-button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.capture-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.capture-button:active {
+  transform: translateY(0);
+}
+
+.capture-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.history-button {
+  background: #f8f9fa;
+  color: #555;
+  border: 2px solid #e1e5e9;
+}
+
+.history-button:hover {
+  background: #e9ecef;
+  border-color: #ced4da;
+}
+
+.button-icon {
+  font-size: 16px;
+}
+
+.button-text {
+  font-weight: 500;
+}
+
+/* Status Message */
+.status-message {
+  padding: 12px;
+  border-radius: 6px;
+  text-align: center;
+  font-weight: 500;
+  margin-bottom: 16px;
+}
+
+.status-message.loading {
+  background: #e3f2fd;
+  color: #1976d2;
+  border: 1px solid #bbdefb;
+}
+
+.status-message.success {
+  background: #e8f5e8;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+
+.status-message.error {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #ffcdd2;
+}
+
+/* Preview Container */
+.preview-container {
+  border: 2px solid #e1e5e9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: white;
+}
+
+.preview-image {
+  width: 100%;
+  height: auto;
+  max-height: 200px;
+  object-fit: contain;
+  display: block;
+}
+
+.preview-actions {
+  padding: 12px;
+  display: flex;
+  gap: 8px;
+  background: #f8f9fa;
+  border-top: 1px solid #e1e5e9;
+}
+
+.download-button,
+.close-button {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.download-button {
+  background: #28a745;
+  color: white;
+}
+
+.download-button:hover {
+  background: #218838;
+}
+
+.close-button {
+  background: #6c757d;
+  color: white;
+}
+
+.close-button:hover {
+  background: #5a6268;
+}
+
+/* Footer */
+.popup-footer {
+  padding: 16px 20px;
+  background: #f8f9fa;
+  border-top: 1px solid #e1e5e9;
+}
+
+.footer-links {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+.footer-link {
+  color: #6c757d;
+  text-decoration: none;
+  font-size: 12px;
+  transition: color 0.2s ease;
+}
+
+.footer-link:hover {
+  color: #495057;
+  text-decoration: underline;
+}
+
+.separator {
+  color: #dee2e6;
+  font-size: 12px;
+}
+
+/* Loading Animation */
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.loading .button-icon {
+  animation: spin 1s linear infinite;
+}
+
+/* Responsive Design */
+@media (max-width: 350px) {
+  .popup-container {
+    width: 100%;
+    min-width: 280px;
+  }
+
+  .action-buttons {
+    flex-direction: column;
+  }
+
+  .capture-button,
+  .history-button {
+    width: 100%;
+  }
+}
+
+/* Accessibility */
+.capture-button:focus,
+.history-button:focus,
+.download-button:focus,
+.close-button:focus {
+  outline: 2px solid #667eea;
+  outline-offset: 2px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #1a1a1a;
+    color: #e1e1e1;
+  }
+
+  .popup-container {
+    background: #2d2d2d;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  }
+
+  .mode-select {
+    background: #3d3d3d;
+    border-color: #4d4d4d;
+    color: #e1e1e1;
+  }
+
+  .history-button {
+    background: #3d3d3d;
+    color: #e1e1e1;
+    border-color: #4d4d4d;
+  }
+
+  .history-button:hover {
+    background: #4d4d4d;
+  }
+
+  .popup-footer {
+    background: #3d3d3d;
+    border-color: #4d4d4d;
+  }
+
+  .preview-container {
+    border-color: #4d4d4d;
+    background: #3d3d3d;
+  }
+
+  .preview-actions {
+    background: #3d3d3d;
+    border-color: #4d4d4d;
+  }
+}
