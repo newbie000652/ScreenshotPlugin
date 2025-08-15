@@ -236,7 +236,8 @@ class PopupController {
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(message, (response) => {
         if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
+          const error = chrome.runtime.lastError;
+          reject(new Error(error?.message || '通信失败'));
         } else {
           resolve(response as ScreenshotResponse);
         }

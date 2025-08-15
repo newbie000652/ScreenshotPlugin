@@ -94,7 +94,7 @@ class ContentScriptController {
           window.scrollTo(x, y);
 
           // Wait for scroll to complete and any animations to finish
-          await this.wait(200);
+          await this.waitForScrollAndAnimations();
 
           // Capture visible area
           const dataUrl = await this.captureVisibleArea();
@@ -128,7 +128,8 @@ class ContentScriptController {
       // 通过background script来截取当前标签页
       chrome.runtime.sendMessage({ action: 'captureVisibleTab' }, (response) => {
         if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
+          const error = chrome.runtime.lastError;
+          reject(new Error(error?.message || '截图失败'));
         } else if (response && response.success) {
           resolve(response.dataUrl);
         } else {
@@ -162,6 +163,34 @@ class ContentScriptController {
 
   private wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async waitForScrollAndAnimations(): Promise<void> {
+    // Wait for scroll to complete
+    await this.wait(100); // Initial wait
+    const checkScroll = () => {
+      const currentScrollX = window.scrollX;
+      const currentScrollY = window.scrollY;
+      if (currentScrollX === window.scrollX && currentScrollY === window.scrollY) {
+        // Scroll has stopped
+        return true;
+      }
+      // Check if any animation frames are pending
+      return requestAnimationFrame(checkScroll);
+    };
+    await checkScroll();
+
+    // Wait for any pending animations to finish
+    await this.wait(100); // Initial wait
+    const checkAnimations = () => {
+      const currentAnimationFrame = requestAnimationFrame(checkAnimations);
+      if (currentAnimationFrame === 0) {
+        // No more animation frames, all animations have finished
+        return true;
+      }
+      return false;
+    };
+    await checkAnimations();
   }
 }
 

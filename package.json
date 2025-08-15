@@ -26,6 +26,8 @@
     "vite": "^6.3.5",
     "vite-plugin-static-copy": "^3.0.0",
     "vitest": "^3.2.2",
-    "webextension-polyfill": "^0.12.0"
+    "webextension-polyfill": "^0.12.0",
+    "@types/webextension-polyfill": "^0.10.7",
+    "rimraf": "^6.0.1"
   }
 }
