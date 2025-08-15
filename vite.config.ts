@@ -16,6 +16,8 @@ export default defineConfig({
       targets: [
         { src: 'src/popup/index.html', dest: 'popup' },
         { src: 'src/options/index.html', dest: 'options' },
+        { src: 'src/popup/popup.css', dest: 'popup' },
+        { src: 'src/options/options.css', dest: 'options' },
       ]
     })
   ],

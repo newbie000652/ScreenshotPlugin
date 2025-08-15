@@ -93,13 +93,13 @@ class ContentScriptController {
           // Scroll to position
           window.scrollTo(x, y);
 
-          // Wait for scroll to complete
-          await this.wait(100);
+          // Wait for scroll to complete and any animations to finish
+          await this.wait(200);
 
           // Capture visible area
           const dataUrl = await this.captureVisibleArea();
 
-          // Draw to canvas
+          // Draw to canvas at the correct position
           await this.drawImageToCanvas(dataUrl, x, y);
         }
       }
@@ -125,13 +125,14 @@ class ContentScriptController {
 
   private async captureVisibleArea(): Promise<string> {
     return new Promise((resolve, reject) => {
+      // 通过background script来截取当前标签页
       chrome.runtime.sendMessage({ action: 'captureVisibleTab' }, (response) => {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
-        } else if (response.success) {
+        } else if (response && response.success) {
           resolve(response.dataUrl);
         } else {
-          reject(new Error(response.error || '截图失败'));
+          reject(new Error(response?.error || '截图失败'));
         }
       });
     });

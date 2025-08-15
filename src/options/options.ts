@@ -93,23 +93,37 @@ class OptionsController {
     const exportBtn = document.getElementById('export-btn');
     const refreshBtn = document.getElementById('refresh-btn');
 
-    clearAllBtn?.addEventListener('click', () => this.clearAllScreenshots());
-    exportBtn?.addEventListener('click', () => this.exportData());
-    refreshBtn?.addEventListener('click', () => this.loadScreenshots());
+    if (clearAllBtn) {
+      clearAllBtn.addEventListener('click', () => this.clearAllScreenshots());
+    }
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => this.exportData());
+    }
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => this.loadScreenshots());
+    }
 
     // Search and sort
     const searchInput = document.getElementById('search-input') as HTMLInputElement;
     const sortSelect = document.getElementById('sort-select') as HTMLSelectElement;
 
-    searchInput?.addEventListener('input', () => this.filterScreenshots());
-    sortSelect?.addEventListener('change', () => this.filterScreenshots());
+    if (searchInput) {
+      searchInput.addEventListener('input', () => this.filterScreenshots());
+    }
+    if (sortSelect) {
+      sortSelect.addEventListener('change', () => this.filterScreenshots());
+    }
 
     // Pagination
     const prevPageBtn = document.getElementById('prev-page');
     const nextPageBtn = document.getElementById('next-page');
 
-    prevPageBtn?.addEventListener('click', () => this.changePage(-1));
-    nextPageBtn?.addEventListener('click', () => this.changePage(1));
+    if (prevPageBtn) {
+      prevPageBtn.addEventListener('click', () => this.changePage(-1));
+    }
+    if (nextPageBtn) {
+      nextPageBtn.addEventListener('click', () => this.changePage(1));
+    }
   }
 
   private bindSettingsEvents(): void {
@@ -199,12 +213,26 @@ class OptionsController {
       const imageQuality = document.getElementById('image-quality') as HTMLInputElement;
       const filenamePattern = document.getElementById('filename-pattern') as HTMLInputElement;
 
+      // 验证输入值
+      const maxHistoryValue = parseInt(maxHistory?.value || '50');
+      const imageQualityValue = parseInt(imageQuality?.value || '90');
+
+      if (maxHistoryValue < 10 || maxHistoryValue > 200) {
+        this.showError('历史记录数量必须在10-200之间');
+        return;
+      }
+
+      if (imageQualityValue < 50 || imageQualityValue > 100) {
+        this.showError('图片质量必须在50-100之间');
+        return;
+      }
+
       this.settings = {
         captureMode: (defaultMode?.value as 'visible' | 'full') || 'visible',
-        autoDownload: autoDownload?.checked || true,
-        saveHistory: saveHistory?.checked || true,
-        maxHistory: parseInt(maxHistory?.value || '50'),
-        imageQuality: parseInt(imageQuality?.value || '90'),
+        autoDownload: autoDownload?.checked ?? true,
+        saveHistory: saveHistory?.checked ?? true,
+        maxHistory: maxHistoryValue,
+        imageQuality: imageQualityValue,
         filenamePattern: filenamePattern?.value || 'screenshot_{date}_{time}',
       };
 

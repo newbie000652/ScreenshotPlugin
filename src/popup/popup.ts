@@ -54,31 +54,51 @@ class PopupController {
       this.helpLink,
     ];
 
-    elements.forEach((element, index) => {
+    const missingElements = elements.filter((element, index) => {
       if (!element) {
         console.error(`Element at index ${index} not found`);
+        return true;
       }
+      return false;
     });
+
+    if (missingElements.length > 0) {
+      throw new Error(`Missing ${missingElements.length} required elements`);
+    }
   }
 
   private bindEvents(): void {
-    this.captureBtn.addEventListener('click', () => this.handleCapture());
-    this.historyBtn.addEventListener('click', () => this.openHistoryPage());
-    this.modeSelect.addEventListener('change', () => this.saveSettings());
-    this.downloadBtn.addEventListener('click', () => this.downloadCurrentImage());
-    this.closePreviewBtn.addEventListener('click', () => this.hidePreview());
-    this.optionsLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      this.openOptionsPage();
-    });
-    this.helpLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      this.showHelp();
-    });
+    if (this.captureBtn) {
+      this.captureBtn.addEventListener('click', () => this.handleCapture());
+    }
+    if (this.historyBtn) {
+      this.historyBtn.addEventListener('click', () => this.openHistoryPage());
+    }
+    if (this.modeSelect) {
+      this.modeSelect.addEventListener('change', () => this.saveSettings());
+    }
+    if (this.downloadBtn) {
+      this.downloadBtn.addEventListener('click', () => this.downloadCurrentImage());
+    }
+    if (this.closePreviewBtn) {
+      this.closePreviewBtn.addEventListener('click', () => this.hidePreview());
+    }
+    if (this.optionsLink) {
+      this.optionsLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.openOptionsPage();
+      });
+    }
+    if (this.helpLink) {
+      this.helpLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.showHelp();
+      });
+    }
 
     // 键盘快捷键
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !this.captureBtn.disabled) {
+      if (e.key === 'Enter' && this.captureBtn && !this.captureBtn.disabled) {
         this.handleCapture();
       } else if (e.key === 'Escape') {
         this.hidePreview();
@@ -212,13 +232,13 @@ class PopupController {
     alert(helpText);
   }
 
-  private async sendMessage(message: Record<string, unknown>): Promise<ApiResponse> {
+  private async sendMessage(message: Record<string, unknown>): Promise<ScreenshotResponse> {
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(message, (response) => {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
         } else {
-          resolve(response as ApiResponse);
+          resolve(response as ScreenshotResponse);
         }
       });
     });
@@ -233,12 +253,3 @@ document.addEventListener('DOMContentLoaded', () => {
 // 导出类型供其他模块使用
 export type { ScreenshotResponse };
 export { PopupController };
-
-// Screenshot popup controller
-// Handles main screenshot functionality
-
-interface ApiResponse {
-  success: boolean;
-  dataUrl?: string;
-  message?: string;
-}

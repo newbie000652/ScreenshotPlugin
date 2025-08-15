@@ -10,8 +10,8 @@ interface ScreenshotData {
 }
 
 interface CaptureMessage {
-  action: 'capture';
-  mode: 'visible' | 'full';
+  action: 'capture' | 'captureVisibleTab';
+  mode?: 'visible' | 'full';
 }
 
 interface GetHistoryMessage {
@@ -27,36 +27,54 @@ type Message = CaptureMessage | GetHistoryMessage | DeleteScreenshotMessage;
 
 // 监听来自popup和content script的消息
 chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
-  switch (message.action) {
-    case 'capture':
-      handleCapture(message.mode, sender.tab)
-        .then(sendResponse)
-        .catch((error) => {
-          console.error('Capture failed:', error);
-          sendResponse({ success: false, error: error.message });
-        });
-      return true; // 保持消息通道开放
+  try {
+    switch (message.action) {
+      case 'capture':
+        if (!message.mode) {
+          sendResponse({ success: false, error: 'Mode is required for capture action' });
+          return true;
+        }
+        handleCapture(message.mode, sender.tab)
+          .then(sendResponse)
+          .catch((error) => {
+            console.error('Capture failed:', error);
+            sendResponse({ success: false, error: error.message });
+          });
+        return true; // 保持消息通道开放
 
-    case 'getHistory':
-      getScreenshotHistory()
-        .then(sendResponse)
-        .catch((error) => {
-          console.error('Get history failed:', error);
-          sendResponse({ success: false, error: error.message });
-        });
-      return true;
+      case 'captureVisibleTab':
+        handleCaptureVisibleTab(sender.tab)
+          .then(sendResponse)
+          .catch((error) => {
+            console.error('Capture visible tab failed:', error);
+            sendResponse({ success: false, error: error.message });
+          });
+        return true;
 
-    case 'deleteScreenshot':
-      deleteScreenshot(message.id)
-        .then(sendResponse)
-        .catch((error) => {
-          console.error('Delete screenshot failed:', error);
-          sendResponse({ success: false, error: error.message });
-        });
-      return true;
+      case 'getHistory':
+        getScreenshotHistory()
+          .then(sendResponse)
+          .catch((error) => {
+            console.error('Get history failed:', error);
+            sendResponse({ success: false, error: error.message });
+          });
+        return true;
 
-    default:
-      sendResponse({ success: false, error: 'Unknown action' });
+      case 'deleteScreenshot':
+        deleteScreenshot(message.id)
+          .then(sendResponse)
+          .catch((error) => {
+            console.error('Delete screenshot failed:', error);
+            sendResponse({ success: false, error: error.message });
+          });
+        return true;
+
+      default:
+        sendResponse({ success: false, error: 'Unknown action' });
+    }
+  } catch (error) {
+    console.error('Message handler error:', error);
+    sendResponse({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
 
@@ -66,29 +84,45 @@ async function handleCapture(
   tab?: chrome.tabs.Tab
 ): Promise<{ success: boolean; dataUrl?: string; filename?: string; error?: string }> {
   try {
-    if (!tab?.id) {
-      throw new Error('No active tab found');
+    let targetTab = tab;
+    
+    // 如果没有提供tab信息，获取当前活动标签页
+    if (!targetTab?.id) {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tabs.length === 0) {
+        throw new Error('No active tab found');
+      }
+      targetTab = tabs[0];
     }
 
     let dataUrl: string;
 
     if (mode === 'visible') {
       // 截取可视区域
-      dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+      dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId!, {
         format: 'png',
         quality: 100,
       });
     } else {
       // 全页截图 - 通过content script实现
-      const response = await chrome.tabs.sendMessage(tab.id, {
-        action: 'captureFullPage',
-      });
+      try {
+        const response = await chrome.tabs.sendMessage(targetTab.id!, {
+          action: 'captureFullPage',
+        });
 
-      if (!response.success) {
-        throw new Error(response.error || 'Full page capture failed');
+        if (!response || !response.success) {
+          throw new Error(response?.error || 'Full page capture failed');
+        }
+
+        dataUrl = response.dataUrl;
+      } catch {
+        // 如果content script不可用，回退到可视区域截图
+        console.warn('Content script not available, falling back to visible area capture');
+        dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId!, {
+          format: 'png',
+          quality: 100,
+        });
       }
-
-      dataUrl = response.dataUrl;
     }
 
     // 生成文件名
@@ -102,8 +136,8 @@ async function handleCapture(
       dataUrl,
       timestamp,
       filename,
-      url: tab.url || '',
-      title: tab.title || '',
+      url: targetTab.url || '',
+      title: targetTab.title || '',
     };
 
     await saveScreenshot(screenshotData);
@@ -118,6 +152,40 @@ async function handleCapture(
     };
   } catch (error) {
     console.error('Capture error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+// 处理可视区域截图（供content script调用）
+async function handleCaptureVisibleTab(
+  tab?: chrome.tabs.Tab
+): Promise<{ success: boolean; dataUrl?: string; error?: string }> {
+  try {
+    let targetTab = tab;
+    
+    // 如果没有提供tab信息，获取当前活动标签页
+    if (!targetTab?.id) {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tabs.length === 0) {
+        throw new Error('No active tab found');
+      }
+      targetTab = tabs[0];
+    }
+
+    const dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId!, {
+      format: 'png',
+      quality: 100,
+    });
+
+    return {
+      success: true,
+      dataUrl,
+    };
+  } catch (error) {
+    console.error('Capture visible tab error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
