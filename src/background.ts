@@ -1,17 +1,16 @@
-// Background Service Worker for Screenshot Plugin
+// Background service worker orchestrates capture requests and history management
 
-interface ScreenshotData {
-  id: string;
-  dataUrl: string;
-  timestamp: number;
-  filename: string;
-  url: string;
-  title: string;
-}
+import type { CaptureMode, CaptureResponse, ContentResponse, HistoryResponse, ScreenshotData } from './types';
+import { loadSettings, formatFilename } from './utils/settings';
+import { canUseContentScript, ensureContentScript, safeSendMessage } from './utils/content-script';
 
 interface CaptureMessage {
-  action: 'capture' | 'captureVisibleTab';
-  mode?: 'visible' | 'full' | 'region';
+  action: 'capture';
+  mode: CaptureMode;
+}
+
+interface CaptureVisibleTabMessage {
+  action: 'captureVisibleTab';
 }
 
 interface GetHistoryMessage {
@@ -23,184 +22,79 @@ interface DeleteScreenshotMessage {
   id: string;
 }
 
-type Message = CaptureMessage | GetHistoryMessage | DeleteScreenshotMessage;
+type Message = CaptureMessage | CaptureVisibleTabMessage | GetHistoryMessage | DeleteScreenshotMessage;
 
-// 监听来自popup和content script的消息
 chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) => {
-  try {
-    switch (message.action) {
-      case 'capture':
-        if (!message.mode) {
-          sendResponse({ success: false, error: 'Mode is required for capture action' });
-          return true;
-        }
-        handleCapture(message.mode, sender.tab)
-          .then(sendResponse)
-          .catch((error) => {
-            console.error('Capture failed:', error);
-            sendResponse({ success: false, error: error.message });
-          });
-        return true; // 保持消息通道开放
-
-      case 'captureVisibleTab':
-        handleCaptureVisibleTab(sender.tab)
-          .then(sendResponse)
-          .catch((error) => {
-            console.error('Capture visible tab failed:', error);
-            sendResponse({ success: false, error: error.message });
-          });
-        return true;
-
-      case 'getHistory':
-        getScreenshotHistory()
-          .then(sendResponse)
-          .catch((error) => {
-            console.error('Get history failed:', error);
-            sendResponse({ success: false, error: error.message });
-          });
-        return true;
-
-      case 'deleteScreenshot':
-        deleteScreenshot(message.id)
-          .then(sendResponse)
-          .catch((error) => {
-            console.error('Delete screenshot failed:', error);
-            sendResponse({ success: false, error: error.message });
-          });
-        return true;
-
-      default:
-        sendResponse({ success: false, error: 'Unknown action' });
-    }
-  } catch (error) {
-    console.error('Message handler error:', error);
-    sendResponse({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+  switch (message.action) {
+    case 'capture':
+      handleCapture(message.mode, sender.tab)
+        .then(sendResponse)
+        .catch((error) => {
+          console.error('Background handler error:', error);
+          sendResponse({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+        });
+      return true;
+    case 'captureVisibleTab':
+      handleCaptureVisibleTab(sender.tab)
+        .then(sendResponse)
+        .catch((error) => {
+          console.error('Background handler error:', error);
+          sendResponse({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+        });
+      return true;
+    case 'getHistory':
+      getScreenshotHistory()
+        .then(sendResponse)
+        .catch((error) => {
+          console.error('Background handler error:', error);
+          sendResponse({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+        });
+      return true;
+    case 'deleteScreenshot':
+      deleteScreenshot(message.id)
+        .then(sendResponse)
+        .catch((error) => {
+          console.error('Background handler error:', error);
+          sendResponse({ success: false, error: error instanceof Error ? error.message : 'Unknown error' });
+        });
+      return true;
+    default:
+      sendResponse({ success: false, error: 'Unknown action' });
+      return false;
   }
 });
 
-// 截图处理函数
-async function handleCapture(
-  mode: 'visible' | 'full' | 'region',
-  tab?: chrome.tabs.Tab
-): Promise<{ success: boolean; dataUrl?: string; filename?: string; error?: string }> {
+async function handleCapture(mode: CaptureMode, tab?: chrome.tabs.Tab): Promise<CaptureResponse> {
   try {
-    let targetTab = tab;
-    
-    // 如果没有提供tab信息，获取当前活动标签页
-    if (!targetTab?.id) {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tabs.length === 0) {
-        throw new Error('No active tab found');
-      }
-      targetTab = tabs[0];
-    }
+    const targetTab = await resolveTargetTab(tab);
+    const settings = await loadSettings();
+    const isJpeg = settings.imageQuality < 100;
+    const windowId = getWindowId(targetTab);
 
-  let dataUrl: string | undefined;
-
-  // Load settings
-  const settings = await loadSettings();
-
+    let dataUrl: string | undefined;
     if (mode === 'visible') {
-      // 截取可视区域
-      dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId!, {
-        format: settings.imageQuality < 100 ? 'jpeg' : 'png',
-        quality: Math.min(100, Math.max(50, settings.imageQuality)),
-      });
+      dataUrl = await captureVisibleArea(windowId, settings.imageQuality);
     } else if (mode === 'full') {
-      // 全页截图 - 通过content script实现
-      try {
-        if (!canUseContentScript(targetTab.url || '')) {
-          throw new Error('Content script not allowed on this page');
-        }
-
-        // 先尝试发送；如果失败再注入再重试
-        let response = await safeSendMessage<ContentResponse>(targetTab.id!, {
-          action: 'captureFullPage',
-          options: {
-            quality: Math.min(1, Math.max(0.5, settings.imageQuality / 100)),
-            format: settings.imageQuality < 100 ? 'jpeg' : 'png',
-          },
-        });
-
-        if (!response) {
-          await ensureContentScript(targetTab.id!);
-          response = await safeSendMessage<ContentResponse>(targetTab.id!, {
-            action: 'captureFullPage',
-            options: {
-              quality: Math.min(1, Math.max(0.5, settings.imageQuality / 100)),
-              format: settings.imageQuality < 100 ? 'jpeg' : 'png',
-            },
-          });
-        }
-
-        if (!response || !response.success) {
-          throw new Error(response?.error || 'Full page capture failed');
-        }
-
-        dataUrl = response.dataUrl;
-      } catch {
-        // 如果content script不可用，回退到可视区域截图
-        console.warn('Content script not available, falling back to visible area capture');
-        dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId!, {
-          format: settings.imageQuality < 100 ? 'jpeg' : 'png',
-          quality: Math.min(100, Math.max(50, settings.imageQuality)),
-        });
-      }
+      dataUrl = await captureFullPage(targetTab, settings.imageQuality);
     } else if (mode === 'region') {
-      // 区域选择截图
-      try {
-        if (!canUseContentScript(targetTab.url || '')) {
-          throw new Error('Content script not allowed on this page');
-        }
-
-        let response = await safeSendMessage<ContentResponse>(targetTab.id!, {
-          action: 'selectRegion',
-          options: {
-            quality: Math.min(1, Math.max(0.5, settings.imageQuality / 100)),
-            format: settings.imageQuality < 100 ? 'jpeg' : 'png',
-          },
-        });
-
-        if (!response) {
-          await ensureContentScript(targetTab.id!);
-          response = await safeSendMessage<ContentResponse>(targetTab.id!, {
-            action: 'selectRegion',
-            options: {
-              quality: Math.min(1, Math.max(0.5, settings.imageQuality / 100)),
-              format: settings.imageQuality < 100 ? 'jpeg' : 'png',
-            },
-          });
-        }
-
-        if (!response || !response.success) {
-          throw new Error(response?.error || 'Region capture failed');
-        }
-        dataUrl = response.dataUrl;
-      } catch {
-        console.warn('Region selection not available, falling back to visible area capture');
-        dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId!, {
-          format: settings.imageQuality < 100 ? 'jpeg' : 'png',
-          quality: Math.min(100, Math.max(50, settings.imageQuality)),
-        });
-      }
-    } else {
-      throw new Error('Unknown capture mode');
+      dataUrl = await captureRegion(targetTab, settings.imageQuality);
     }
 
-    // 生成文件名
+    if (!dataUrl) {
+      throw new Error('Failed to capture screenshot');
+    }
+
     const timestamp = Date.now();
-    const date = new Date(timestamp);
     const filename = formatFilename(settings.filenamePattern, {
-      date,
+      date: new Date(timestamp),
       tab: targetTab,
       timestamp,
-      ext: (settings.imageQuality < 100 ? 'jpg' : 'png'),
+      ext: isJpeg ? 'jpg' : 'png',
     });
 
-    // 保存到历史记录
     const screenshotData: ScreenshotData = {
       id: `screenshot_${timestamp}`,
-  dataUrl: dataUrl!,
+      dataUrl,
       timestamp,
       filename,
       url: targetTab.url || '',
@@ -211,251 +105,157 @@ async function handleCapture(
       await saveScreenshot(screenshotData, settings.maxHistory);
     }
 
-    // 自动下载
-    if (settings.autoDownload && dataUrl) {
+    if (settings.autoDownload) {
       await downloadScreenshot(dataUrl, filename);
     }
 
-    return {
-      success: true,
-      dataUrl,
-      filename,
-    };
+    return { success: true, dataUrl, filename };
   } catch (error) {
     console.error('Capture error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
 
-// 处理可视区域截图（供content script调用）
-async function handleCaptureVisibleTab(
-  tab?: chrome.tabs.Tab
-): Promise<{ success: boolean; dataUrl?: string; error?: string }> {
+async function resolveTargetTab(tab?: chrome.tabs.Tab): Promise<chrome.tabs.Tab> {
+  const resolved = tab ?? (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+  if (!resolved) {
+    throw new Error('No active tab found');
+  }
+  if (resolved.id === undefined || resolved.windowId === undefined) {
+    throw new Error('Tab metadata unavailable');
+  }
+  return resolved;
+}
+
+async function captureVisibleArea(windowId: number, quality: number): Promise<string> {
+  return chrome.tabs.captureVisibleTab(windowId, {
+    format: quality < 100 ? 'jpeg' : 'png',
+    quality: clampQuality(quality),
+  });
+}
+
+async function captureFullPage(tab: chrome.tabs.Tab, quality: number): Promise<string | undefined> {
+  if (!canUseContentScript(tab.url || '')) {
+    console.warn('Full page capture unavailable on this page, falling back to visible area');
+    return captureVisibleArea(getWindowId(tab), quality);
+  }
+
+  const response = await executeContentCapture(tab, 'captureFullPage', quality);
+  if (!response?.success || !response.dataUrl) {
+    console.warn('Full page capture failed, falling back to visible area');
+    return captureVisibleArea(getWindowId(tab), quality);
+  }
+
+  return response.dataUrl;
+}
+
+async function captureRegion(tab: chrome.tabs.Tab, quality: number): Promise<string | undefined> {
+  if (!canUseContentScript(tab.url || '')) {
+    console.warn('Region capture unavailable on this page, falling back to visible area');
+    return captureVisibleArea(getWindowId(tab), quality);
+  }
+
+  const response = await executeContentCapture(tab, 'selectRegion', quality);
+  if (!response?.success || !response.dataUrl) {
+    console.warn('Region capture failed, falling back to visible area');
+    return captureVisibleArea(getWindowId(tab), quality);
+  }
+
+  return response.dataUrl;
+}
+
+async function executeContentCapture(
+  tab: chrome.tabs.Tab,
+  action: 'captureFullPage' | 'selectRegion',
+  quality: number
+): Promise<ContentResponse | undefined> {
+  if (tab.id === undefined) {
+    throw new Error('Tab id unavailable for content capture');
+  }
+  const request = {
+    action,
+    options: {
+      quality: clampContentQuality(quality),
+      format: quality < 100 ? 'jpeg' : 'png',
+    },
+  } as const;
+
+  let response = await safeSendMessage<ContentResponse>(tab.id, request);
+  if (!response) {
+    await ensureContentScript(tab.id);
+    response = await safeSendMessage<ContentResponse>(tab.id, request);
+  }
+  return response;
+}
+
+async function handleCaptureVisibleTab(tab?: chrome.tabs.Tab): Promise<ContentResponse> {
   try {
-    let targetTab = tab;
-    
-    // 如果没有提供tab信息，获取当前活动标签页
-    if (!targetTab?.id) {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tabs.length === 0) {
-        throw new Error('No active tab found');
-      }
-      targetTab = tabs[0];
-    }
-
+    const targetTab = await resolveTargetTab(tab);
     const settings = await loadSettings();
-    const dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId!, {
-      format: settings.imageQuality < 100 ? 'jpeg' : 'png',
-      quality: Math.min(100, Math.max(50, settings.imageQuality)),
-    });
-
-    return {
-      success: true,
-      dataUrl,
-    };
+    const dataUrl = await captureVisibleArea(getWindowId(targetTab), settings.imageQuality);
+    return { success: true, dataUrl };
   } catch (error) {
     console.error('Capture visible tab error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
 
-// 保存截图到本地存储
-async function saveScreenshot(screenshot: ScreenshotData, maxHistory: number = 50): Promise<void> {
-  try {
-    const result = await chrome.storage.local.get(['screenshots']);
-    const screenshots: ScreenshotData[] = result.screenshots || [];
+async function saveScreenshot(screenshot: ScreenshotData, maxHistory: number): Promise<void> {
+  const result = await chrome.storage.local.get(['screenshots']);
+  const screenshots: ScreenshotData[] = result.screenshots || [];
 
-    screenshots.unshift(screenshot); // 添加到开头
+  screenshots.unshift(screenshot);
 
-    // 限制历史记录数量（最多保存50张）
-    const limit = Math.max(10, Math.min(200, maxHistory));
-    if (screenshots.length > limit) {
-      screenshots.splice(limit);
-    }
-
-    await chrome.storage.local.set({ screenshots });
-  } catch (error) {
-    console.error('Save screenshot error:', error);
-    throw new Error('Failed to save screenshot to storage');
+  const limit = Math.max(10, Math.min(200, maxHistory));
+  if (screenshots.length > limit) {
+    screenshots.splice(limit);
   }
+
+  await chrome.storage.local.set({ screenshots });
 }
 
-// 下载截图
 async function downloadScreenshot(dataUrl: string, filename: string): Promise<void> {
-  try {
-    await chrome.downloads.download({
-      url: dataUrl,
-      filename,
-      saveAs: false,
-    });
-  } catch (error) {
-    console.error('Download error:', error);
-    throw new Error('Failed to download screenshot');
-  }
+  await chrome.downloads.download({ url: dataUrl, filename, saveAs: false });
 }
 
-// 获取截图历史记录
-async function getScreenshotHistory(): Promise<{
-  success: boolean;
-  screenshots?: ScreenshotData[];
-  error?: string;
-}> {
+async function getScreenshotHistory(): Promise<HistoryResponse> {
   try {
     const result = await chrome.storage.local.get(['screenshots']);
-    return {
-      success: true,
-      screenshots: result.screenshots || [],
-    };
+    return { success: true, screenshots: result.screenshots || [] };
   } catch (error) {
     console.error('Get history error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
 
-// 删除截图
-async function deleteScreenshot(id: string): Promise<{
-  success: boolean;
-  error?: string;
-}> {
+async function deleteScreenshot(id: string): Promise<ContentResponse> {
   try {
     const result = await chrome.storage.local.get(['screenshots']);
     const screenshots: ScreenshotData[] = result.screenshots || [];
-
-    const filteredScreenshots = screenshots.filter((s) => s.id !== id);
-
-    await chrome.storage.local.set({ screenshots: filteredScreenshots });
-
+    const filtered = screenshots.filter((item) => item.id !== id);
+    await chrome.storage.local.set({ screenshots: filtered });
     return { success: true };
   } catch (error) {
     console.error('Delete screenshot error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
 
-// 扩展安装时的初始化
+function getWindowId(tab: chrome.tabs.Tab): number {
+  if (tab.windowId === undefined) {
+    throw new Error('No window associated with target tab');
+  }
+  return tab.windowId;
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Screenshot Plugin installed');
 });
 
-// Settings helpers
-interface Settings {
-  captureMode: 'visible' | 'full';
-  autoDownload: boolean;
-  saveHistory: boolean;
-  maxHistory: number;
-  imageQuality: number; // 50-100
-  filenamePattern: string; // e.g. screenshot_{date}_{time}
+function clampQuality(quality: number): number {
+  return Math.min(100, Math.max(50, Math.round(quality)));
 }
 
-async function loadSettings(): Promise<Settings> {
-  const defaults: Settings = {
-    captureMode: 'visible',
-    autoDownload: true,
-    saveHistory: true,
-    maxHistory: 50,
-    imageQuality: 100,
-    filenamePattern: 'screenshot_{date}_{time}',
-  };
-  try {
-    const result = await chrome.storage.local.get(['settings']);
-    return { ...defaults, ...(result.settings || {}) } as Settings;
-  } catch {
-    return defaults;
-  }
-}
-
-function sanitizeFilenamePart(str: string): string {
-  return str
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 80);
-}
-
-function replaceTokenAll(input: string, token: string, value: string): string {
-  return input.split(token).join(value);
-}
-
-function formatFilename(pattern: string, ctx: { date: Date; tab?: chrome.tabs.Tab; timestamp: number; ext: string }): string {
-  const pad2 = (n: number) => String(n).padStart(2, '0');
-  const yyyy = ctx.date.getFullYear();
-  const MM = pad2(ctx.date.getMonth() + 1);
-  const dd = pad2(ctx.date.getDate());
-  const HH = pad2(ctx.date.getHours());
-  const mm = pad2(ctx.date.getMinutes());
-  const ss = pad2(ctx.date.getSeconds());
-
-  const dateStr = `${yyyy}${MM}${dd}`;
-  const timeStr = `${HH}${mm}${ss}`;
-  const title = sanitizeFilenamePart(ctx.tab?.title || 'untitled');
-  const urlHost = (() => {
-    try { return ctx.tab?.url ? new URL(ctx.tab.url).hostname : 'page'; } catch { return 'page'; }
-  })();
-
-  let base = pattern || 'screenshot_{date}_{time}';
-  base = replaceTokenAll(base, '{date}', dateStr);
-  base = replaceTokenAll(base, '{time}', timeStr);
-  base = replaceTokenAll(base, '{title}', title);
-  base = replaceTokenAll(base, '{url}', urlHost);
-  base = replaceTokenAll(base, '{timestamp}', String(ctx.timestamp));
-
-  const sanitized = sanitizeFilenamePart(base || 'screenshot');
-  return `${sanitized}.${ctx.ext}`;
-}
-
-// Content script helpers
-function canUseContentScript(url: string): boolean {
-  try {
-    const u = new URL(url);
-    // Disallow special schemes where content scripts cannot run
-    const blocked = new Set(['chrome:', 'edge:', 'about:', 'opera:', 'view-source:', 'chrome-extension:']);
-    return !blocked.has(u.protocol);
-  } catch {
-    return false;
-  }
-}
-
-async function ensureContentScript(tabId: number): Promise<void> {
-  try {
-    const injection = {
-      target: { tabId },
-      files: ['content/content.js'],
-      world: 'ISOLATED',
-    } as unknown;
-  await (chrome.scripting.executeScript as unknown as Function)(injection);
-  } catch (e) {
-    // Best-effort: ignore injection errors, caller will handle fallback
-    console.warn('ensureContentScript failed:', e);
-  }
-}
-
-type GenericMessage = Record<string, unknown>;
-type ContentResponse = { success: boolean; dataUrl?: string; error?: string };
-async function safeSendMessage<T = unknown>(tabId: number, message: GenericMessage): Promise<T | undefined> {
-  return new Promise((resolve) => {
-    try {
-      chrome.tabs.sendMessage(tabId, message, (response) => {
-        if (chrome.runtime.lastError) {
-          // Receiving end does not exist -> undefined
-          resolve(undefined);
-          return;
-        }
-        resolve(response as T);
-      });
-    } catch {
-      resolve(undefined);
-    }
-  });
+function clampContentQuality(quality: number): number {
+  return Math.min(1, Math.max(0.5, quality / 100));
 }

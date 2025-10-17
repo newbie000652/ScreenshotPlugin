@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+
+  :root {
+    --brand-primary: #667eea;
+    --brand-primary-dark: #5a6fd8;
+    --brand-accent: #764ba2;
+  }
+
+  body {
+    @apply m-0 flex min-h-[420px] max-h-[680px] w-[380px] items-center justify-center overflow-auto bg-slate-100 p-3 font-sans text-slate-800 antialiased;
+    overscroll-behavior: contain;
+  }
+}
+
+@layer components {
+  .popup-container {
+    @apply flex w-full flex-col rounded-2xl border border-slate-200/60 bg-white shadow-xl;
+    max-height: 100%;
+    min-height: 390px;
+  }
+
+  .popup-header {
+    @apply px-6 pb-4 pt-4 text-center text-white;
+    background-image: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-dark) 45%, var(--brand-accent) 100%);
+  }
+
+  .popup-title {
+    @apply text-xl font-bold tracking-tight;
+  }
+
+  .popup-main {
+    @apply flex flex-1 flex-col space-y-4 px-6 py-5;
+  }
+
+  .mode-selector {
+    @apply space-y-2;
+  }
+
+  .mode-selector label {
+    @apply block text-xs font-semibold uppercase tracking-wide text-slate-500;
+  }
+
+  .mode-select {
+    @apply w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition focus:outline-none;
+  }
+
+  .mode-select:focus-visible {
+    border-color: var(--brand-primary);
+    background-color: white;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 10%, transparent);
+  }
+
+  .action-buttons {
+    @apply flex flex-col gap-2.5;
+  }
+
+  .capture-button {
+    @apply inline-flex w-full items-center justify-center gap-2.5 rounded-xl px-5 py-3.5 text-base font-bold text-white shadow-lg transition-all hover:shadow-xl hover:scale-[1.02] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100;
+    background-image: linear-gradient(120deg, var(--brand-primary) 0%, var(--brand-accent) 100%);
+  }
+
+  .capture-button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 25%, transparent), 0 10px 25px -5px color-mix(in srgb, var(--brand-primary) 40%, transparent);
+  }
+
+  .capture-button.loading {
+    @apply cursor-wait opacity-70;
+  }
+
+  .history-button {
+    @apply inline-flex w-full items-center justify-center gap-2.5 rounded-xl border-2 border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-600 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 hover:shadow focus:outline-none;
+  }
+
+  .history-button:focus-visible {
+    outline: none;
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 10%, transparent);
+  }
+
+  .button-icon {
+    @apply text-lg;
+  }
+
+  .loading .button-icon {
+    @apply animate-spin;
+  }
+
+  .status-message {
+    @apply hidden rounded-xl border px-4 py-3 text-center text-sm font-medium shadow-sm;
+  }
+
+  .status-message.loading {
+    @apply block border-sky-200 bg-sky-50 text-sky-600;
+  }
+
+  .status-message.success {
+    @apply block border-emerald-200 bg-emerald-50 text-emerald-600;
+  }
+
+  .status-message.error {
+    @apply block border-rose-200 bg-rose-50 text-rose-600;
+  }
+
+  .preview-container {
+    @apply hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md;
+  }
+
+  .preview-image {
+    @apply h-auto w-full max-h-48 object-contain bg-slate-50;
+  }
+
+  .preview-actions {
+    @apply flex gap-2.5 border-t border-slate-200 bg-slate-50 px-4 py-3;
+  }
+
+  .download-button {
+    @apply flex-1 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-600 hover:shadow focus:outline-none;
+  }
+
+  .download-button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, #10b981 15%, transparent);
+  }
+
+  .close-button {
+    @apply flex-1 rounded-lg bg-slate-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-600 hover:shadow focus:outline-none;
+  }
+
+  .close-button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, #64748b 15%, transparent);
+  }
+
+  .popup-footer {
+    @apply mt-auto border-t border-slate-200/60 bg-gradient-to-b from-slate-50/50 to-slate-50 px-6 py-4;
+  }
+
+  .footer-links {
+    @apply flex items-center justify-center gap-4 text-xs text-slate-500;
+  }
+
+  .footer-link {
+    @apply text-xs font-semibold text-slate-500 transition hover:text-slate-700;
+  }
+
+  .footer-link:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .separator {
+    @apply text-slate-300;
+  }
+}

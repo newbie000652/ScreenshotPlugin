@@ -1,42 +1,19 @@
 // Options Page Script for Screenshot Plugin
 
-interface ScreenshotData {
-  id: string;
-  dataUrl: string;
-  timestamp: number;
-  filename: string;
-  url: string;
-  title: string;
-}
+import type { CaptureMode, ContentResponse, HistoryResponse, ScreenshotData, Settings } from '../types';
+import { DEFAULT_SETTINGS, loadSettings as readSettings, normalizeCaptureMode } from '../utils/settings';
 
-interface Settings {
-  captureMode: 'visible' | 'full';
-  autoDownload: boolean;
-  saveHistory: boolean;
-  maxHistory: number;
-  imageQuality: number;
-  filenamePattern: string;
-}
-
-interface ApiResponse {
-  success: boolean;
-  screenshots?: ScreenshotData[];
-  message?: string;
-}
+type OptionsMessage = { action: 'getHistory' } | { action: 'deleteScreenshot'; id: string };
+type OptionsMessageResponse<T extends OptionsMessage> = T extends { action: 'getHistory' }
+  ? HistoryResponse
+  : ContentResponse;
 
 class OptionsController {
-  private currentTab: string = 'history';
+  private currentTab = 'history';
   private screenshots: ScreenshotData[] = [];
-  private settings: Settings = {
-    captureMode: 'visible',
-    autoDownload: true,
-    saveHistory: true,
-    maxHistory: 50,
-    imageQuality: 90,
-    filenamePattern: 'screenshot_{date}_{time}',
-  };
-  private currentPage: number = 1;
-  private itemsPerPage: number = 12;
+  private settings: Settings = { ...DEFAULT_SETTINGS };
+  private currentPage = 1;
+  private itemsPerPage = 12;
   private filteredScreenshots: ScreenshotData[] = [];
 
   constructor() {
@@ -154,7 +131,7 @@ class OptionsController {
     this.showLoading(true);
 
     try {
-      const response = await this.sendMessage({ action: 'getHistory' }) as ApiResponse;
+  const response = await this.sendMessage({ action: 'getHistory' });
 
       if (response.success) {
         this.screenshots = response.screenshots || [];
@@ -172,10 +149,8 @@ class OptionsController {
 
   private async loadSettings(): Promise<void> {
     try {
-      const result = await chrome.storage.local.get(['settings']);
-      if (result.settings) {
-        this.settings = { ...this.settings, ...result.settings };
-      }
+      const persisted = await readSettings();
+      this.settings = { ...persisted };
       this.updateSettingsUI();
     } catch (error) {
       console.error('Load settings error:', error);
@@ -191,7 +166,9 @@ class OptionsController {
     const qualityValue = document.getElementById('quality-value');
     const filenamePattern = document.getElementById('filename-pattern') as HTMLInputElement;
 
-    if (defaultMode) defaultMode.value = this.settings.captureMode;
+    const normalizedMode = normalizeCaptureMode(this.settings.captureMode);
+    this.settings.captureMode = normalizedMode;
+    if (defaultMode) defaultMode.value = normalizedMode;
     if (autoDownload) autoDownload.checked = this.settings.autoDownload;
     if (saveHistory) saveHistory.checked = this.settings.saveHistory;
     if (maxHistory) maxHistory.value = this.settings.maxHistory.toString();
@@ -227,13 +204,16 @@ class OptionsController {
         return;
       }
 
+      const selectedMode = defaultMode?.value as CaptureMode | undefined;
+
       this.settings = {
-        captureMode: (defaultMode?.value as 'visible' | 'full') || 'visible',
-        autoDownload: autoDownload?.checked ?? true,
-        saveHistory: saveHistory?.checked ?? true,
+        ...this.settings,
+        captureMode: normalizeCaptureMode(selectedMode),
+        autoDownload: autoDownload?.checked ?? DEFAULT_SETTINGS.autoDownload,
+        saveHistory: saveHistory?.checked ?? DEFAULT_SETTINGS.saveHistory,
         maxHistory: maxHistoryValue,
         imageQuality: imageQualityValue,
-        filenamePattern: filenamePattern?.value || 'screenshot_{date}_{time}',
+        filenamePattern: filenamePattern?.value?.trim() || DEFAULT_SETTINGS.filenamePattern,
       };
 
       await chrome.storage.local.set({ settings: this.settings });
@@ -246,14 +226,7 @@ class OptionsController {
 
   private async resetSettings(): Promise<void> {
     if (confirm('确定要重置所有设置为默认值吗？')) {
-      this.settings = {
-        captureMode: 'visible',
-        autoDownload: true,
-        saveHistory: true,
-        maxHistory: 50,
-        imageQuality: 90,
-        filenamePattern: 'screenshot_{date}_{time}',
-      };
+      this.settings = { ...DEFAULT_SETTINGS };
 
       await chrome.storage.local.set({ settings: this.settings });
       this.updateSettingsUI();
@@ -428,7 +401,7 @@ class OptionsController {
     if (!confirm('确定要删除这张截图吗？')) return;
 
     try {
-      const response = await this.sendMessage({ action: 'deleteScreenshot', id }) as ApiResponse;
+  const response = await this.sendMessage({ action: 'deleteScreenshot', id });
 
       if (response.success) {
         this.screenshots = this.screenshots.filter((s) => s.id !== id);
@@ -564,14 +537,14 @@ class OptionsController {
     }, 3000);
   }
 
-  private async sendMessage(message: Record<string, unknown>): Promise<ApiResponse> {
+  private async sendMessage<T extends OptionsMessage>(message: T): Promise<OptionsMessageResponse<T>> {
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(message, (response) => {
         if (chrome.runtime.lastError) {
           const error = chrome.runtime.lastError;
           reject(new Error(error?.message || '通信失败'));
         } else {
-          resolve(response as ApiResponse);
+          resolve(response as OptionsMessageResponse<T>);
         }
       });
     });

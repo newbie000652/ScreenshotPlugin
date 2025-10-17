@@ -19,6 +19,7 @@ class ContentScriptController {
   private pageHeight = 0;
   private viewportWidth = 0;
   private viewportHeight = 0;
+  private cleanupCaptureEnv: (() => void) | null = null;
 
   constructor() {
     this.initializeMessageListener();
@@ -50,6 +51,9 @@ class ContentScriptController {
     this.isCapturing = true;
 
     try {
+      // Prepare page to minimize visual artifacts during capture
+      this.cleanupCaptureEnv = this.prepareForCapture();
+
       // Get page dimensions
       const pageHeight = Math.max(
         document.body.scrollHeight,
@@ -76,10 +80,20 @@ class ContentScriptController {
       this.viewportWidth = viewportWidth;
       this.viewportHeight = viewportHeight;
 
-      // Create canvas for full page
-      this.canvas = document.createElement('canvas');
-      this.canvas.width = pageWidth;
-      this.canvas.height = pageHeight;
+      // Create canvas for full page with safety guard (max ~220 megapixels)
+      const MAX_PIXELS = 220 * 1024 * 1024;
+      const totalPixels = pageWidth * pageHeight;
+      if (totalPixels > MAX_PIXELS) {
+        // Downscale the stitching target to fit limits while keeping aspect ratio
+        const scale = Math.sqrt(MAX_PIXELS / totalPixels);
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = Math.max(1, Math.floor(pageWidth * scale));
+        this.canvas.height = Math.max(1, Math.floor(pageHeight * scale));
+      } else {
+        this.canvas = document.createElement('canvas');
+        this.canvas.width = pageWidth;
+        this.canvas.height = pageHeight;
+      }
       this.ctx = this.canvas.getContext('2d');
 
       if (!this.ctx) {
@@ -127,12 +141,76 @@ class ContentScriptController {
       return finalDataUrl;
     } finally {
       this.isCapturing = false;
+      if (this.cleanupCaptureEnv) {
+  try { this.cleanupCaptureEnv(); } catch (e) { void e; }
+        this.cleanupCaptureEnv = null;
+      }
       if (this.canvas) {
         this.canvas.remove();
         this.canvas = null;
         this.ctx = null;
       }
     }
+  }
+
+  private prepareForCapture(): () => void {
+    const html = document.documentElement;
+    const body = document.body;
+    const styleEl = document.createElement('style');
+    styleEl.setAttribute('data-sp-capture-style', '');
+    styleEl.textContent = `
+      html.__sp-capture, body.__sp-capture { scrollbar-width: none !important; }
+      html.__sp-capture::-webkit-scrollbar, body.__sp-capture::-webkit-scrollbar { display: none !important; }
+      .__sp-hide-fixed { visibility: hidden !important; }
+      * { animation: none !important; transition: none !important; }
+    `;
+    document.head.appendChild(styleEl);
+
+    // Save original inline styles we modify
+    const originals = {
+      htmlOverflowY: html.style.overflowY,
+      bodyOverflowY: body.style.overflowY,
+      htmlScrollBehavior: html.style.scrollBehavior,
+      bodyScrollBehavior: body.style.scrollBehavior,
+    } as const;
+
+    // Disable smooth scrolling and lock scrollbar width
+    html.classList.add('__sp-capture');
+    body.classList.add('__sp-capture');
+    html.style.scrollBehavior = 'auto';
+    body.style.scrollBehavior = 'auto';
+    html.style.overflowY = 'scroll';
+    body.style.overflowY = 'scroll';
+
+    // Hide fixed/sticky elements to avoid repeated headers/footers in stitched image
+    const hidden: HTMLElement[] = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+    let node = walker.currentNode as HTMLElement | null;
+    while (node) {
+      try {
+        const el = node as HTMLElement;
+        const cs = getComputedStyle(el);
+        if ((cs.position === 'fixed' || cs.position === 'sticky') && el.offsetParent !== null) {
+          el.classList.add('__sp-hide-fixed');
+          hidden.push(el);
+        }
+  } catch (e) { void e; }
+      node = walker.nextNode() as HTMLElement | null;
+    }
+
+    return () => {
+      // Restore classes and styles
+      html.classList.remove('__sp-capture');
+      body.classList.remove('__sp-capture');
+      html.style.overflowY = originals.htmlOverflowY;
+      body.style.overflowY = originals.bodyOverflowY;
+      html.style.scrollBehavior = originals.htmlScrollBehavior;
+      body.style.scrollBehavior = originals.bodyScrollBehavior;
+      // Unhide elements
+      hidden.forEach((el) => el.classList.remove('__sp-hide-fixed'));
+      // Remove style element
+      if (styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
+    };
   }
 
   private async captureVisibleArea(): Promise<string> {
@@ -164,9 +242,15 @@ class ContentScriptController {
         const scaleX = img.naturalWidth / this.viewportWidth;
         const scaleY = img.naturalHeight / this.viewportHeight;
 
-        // Destination size within page bounds (CSS pixels)
-        const destW = Math.min(this.viewportWidth, this.pageWidth - x);
-        const destH = Math.min(this.viewportHeight, this.pageHeight - y);
+  // Destination size within page bounds (CSS pixels)
+  const destWcss = Math.min(this.viewportWidth, this.pageWidth - x);
+  const destHcss = Math.min(this.viewportHeight, this.pageHeight - y);
+
+  // If canvas is downscaled, compute destination in canvas pixels
+  const scaleXc = this.canvas.width / this.pageWidth;
+  const scaleYc = this.canvas.height / this.pageHeight;
+  const destW = Math.round(destWcss * scaleXc);
+  const destH = Math.round(destHcss * scaleYc);
 
         // Corresponding source rectangle (device pixels)
         const srcW = Math.round(destW * scaleX);
@@ -178,8 +262,8 @@ class ContentScriptController {
           0,
           srcW,
           srcH,
-          x,
-          y,
+          Math.round(x * scaleXc),
+          Math.round(y * scaleYc),
           destW,
           destH
         );

@@ -1,11 +1,7 @@
 // Popup Script for Screenshot Plugin
 
-interface ScreenshotResponse {
-  success: boolean;
-  dataUrl?: string;
-  filename?: string;
-  error?: string;
-}
+import type { CaptureMode, CaptureResponse } from '../types';
+import { loadSettings, normalizeCaptureMode } from '../utils/settings';
 
 class PopupController {
   private captureBtn!: HTMLButtonElement;
@@ -65,6 +61,9 @@ class PopupController {
     if (missingElements.length > 0) {
       throw new Error(`Missing ${missingElements.length} required elements`);
     }
+
+    // 初始调整高度
+    setTimeout(() => this.adjustPopupHeight(), 100);
   }
 
   private bindEvents(): void {
@@ -108,11 +107,8 @@ class PopupController {
 
   private async loadSettings(): Promise<void> {
     try {
-  const result = await chrome.storage.local.get(['settings', 'captureMode']);
-  const settings = result.settings as { captureMode?: 'visible' | 'full' | 'region' } | undefined;
-  const legacyMode = result.captureMode as 'visible' | 'full' | 'region' | undefined;
-      const mode = settings?.captureMode || legacyMode || 'visible';
-      this.modeSelect.value = mode;
+      const settings = await loadSettings();
+      this.modeSelect.value = normalizeCaptureMode(settings.captureMode);
     } catch (error) {
       console.error('Failed to load settings:', error);
     }
@@ -124,7 +120,7 @@ class PopupController {
       const existing = await chrome.storage.local.get(['settings']);
       const settings = {
         ...(existing.settings || {}),
-        captureMode: this.modeSelect.value as 'visible' | 'full' | 'region',
+        captureMode: normalizeCaptureMode(this.modeSelect.value as CaptureMode),
       };
       await chrome.storage.local.set({ settings, captureMode: settings.captureMode });
     } catch (error) {
@@ -133,17 +129,17 @@ class PopupController {
   }
 
   private async handleCapture(): Promise<void> {
-    const mode = this.modeSelect.value as 'visible' | 'full' | 'region';
+  const mode = normalizeCaptureMode(this.modeSelect.value as CaptureMode);
 
     this.setLoading(true);
     this.showStatus('正在截取...', 'loading');
     this.hidePreview();
 
     try {
-      const response = (await this.sendMessage({
+      const response = await this.sendMessage({
         action: 'capture',
         mode,
-      })) as ScreenshotResponse;
+      });
 
       if (response.success && response.dataUrl) {
         this.showStatus(`截图成功！文件名: ${response.filename}`, 'success');
@@ -176,20 +172,48 @@ class PopupController {
     this.statusText.textContent = message;
     this.statusDiv.className = `status-message ${type}`;
     this.statusDiv.style.display = 'block';
+    this.adjustPopupHeight();
   }
 
   private hideStatus(): void {
     this.statusDiv.style.display = 'none';
+    this.adjustPopupHeight();
   }
 
   private showPreview(dataUrl: string): void {
     this.previewImage.src = dataUrl;
     this.previewDiv.style.display = 'block';
+    this.adjustPopupHeight();
   }
 
   private hidePreview(): void {
     this.previewDiv.style.display = 'none';
     this.previewImage.src = '';
+    this.adjustPopupHeight();
+  }
+
+  private adjustPopupHeight(): void {
+    // 使用 requestAnimationFrame 确保 DOM 更新后再调整高度
+    requestAnimationFrame(() => {
+      const container = document.querySelector('.popup-container') as HTMLElement;
+      if (!container) return;
+
+      // 计算容器完整高度（含外边距的可视余量）
+      const rect = container.getBoundingClientRect();
+      const styles = getComputedStyle(container);
+      const marginTop = parseFloat(styles.marginTop || '0');
+      const marginBottom = parseFloat(styles.marginBottom || '0');
+      const chromePadding = 6; // 外层阴影/圆角视觉余量
+      const epsilon = 1; // 防止出现 1px 溢出导致滚动条
+
+      const contentHeight = rect.height + marginTop + marginBottom + chromePadding;
+      const minHeight = 420;
+      const maxHeight = 680;
+
+      // 限制在最小和最大高度之间
+      const targetHeight = Math.min(Math.max(Math.ceil(contentHeight) + epsilon, minHeight), maxHeight);
+      document.body.style.height = `${targetHeight}px`;
+    });
   }
 
   private downloadCurrentImage(): void {
@@ -237,14 +261,14 @@ class PopupController {
     alert(helpText);
   }
 
-  private async sendMessage(message: Record<string, unknown>): Promise<ScreenshotResponse> {
+  private async sendMessage(message: Record<string, unknown>): Promise<CaptureResponse> {
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(message, (response) => {
         if (chrome.runtime.lastError) {
           const error = chrome.runtime.lastError;
           reject(new Error(error?.message || '通信失败'));
         } else {
-          resolve(response as ScreenshotResponse);
+          resolve(response as CaptureResponse);
         }
       });
     });
@@ -256,6 +280,4 @@ document.addEventListener('DOMContentLoaded', () => {
   new PopupController();
 });
 
-// 导出类型供其他模块使用
-export type { ScreenshotResponse };
 export { PopupController };
