@@ -108,10 +108,11 @@ class PopupController {
 
   private async loadSettings(): Promise<void> {
     try {
-      const result = await chrome.storage.local.get(['captureMode']);
-      if (result.captureMode) {
-        this.modeSelect.value = result.captureMode;
-      }
+  const result = await chrome.storage.local.get(['settings', 'captureMode']);
+  const settings = result.settings as { captureMode?: 'visible' | 'full' | 'region' } | undefined;
+  const legacyMode = result.captureMode as 'visible' | 'full' | 'region' | undefined;
+      const mode = settings?.captureMode || legacyMode || 'visible';
+      this.modeSelect.value = mode;
     } catch (error) {
       console.error('Failed to load settings:', error);
     }
@@ -119,16 +120,20 @@ class PopupController {
 
   private async saveSettings(): Promise<void> {
     try {
-      await chrome.storage.local.set({
-        captureMode: this.modeSelect.value,
-      });
+      // Merge into shared settings object for consistency
+      const existing = await chrome.storage.local.get(['settings']);
+      const settings = {
+        ...(existing.settings || {}),
+        captureMode: this.modeSelect.value as 'visible' | 'full' | 'region',
+      };
+      await chrome.storage.local.set({ settings, captureMode: settings.captureMode });
     } catch (error) {
       console.error('Failed to save settings:', error);
     }
   }
 
   private async handleCapture(): Promise<void> {
-    const mode = this.modeSelect.value as 'visible' | 'full';
+    const mode = this.modeSelect.value as 'visible' | 'full' | 'region';
 
     this.setLoading(true);
     this.showStatus('正在截取...', 'loading');

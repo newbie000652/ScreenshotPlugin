@@ -15,6 +15,10 @@ class ContentScriptController {
   private isCapturing: boolean = false;
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
+  private pageWidth = 0;
+  private pageHeight = 0;
+  private viewportWidth = 0;
+  private viewportHeight = 0;
 
   constructor() {
     this.initializeMessageListener();
@@ -66,6 +70,12 @@ class ContentScriptController {
       const viewportHeight = window.innerHeight;
       const viewportWidth = window.innerWidth;
 
+      // cache dimensions for draw phase
+      this.pageWidth = pageWidth;
+      this.pageHeight = pageHeight;
+      this.viewportWidth = viewportWidth;
+      this.viewportHeight = viewportHeight;
+
       // Create canvas for full page
       this.canvas = document.createElement('canvas');
       this.canvas.width = pageWidth;
@@ -93,8 +103,10 @@ class ContentScriptController {
           // Scroll to position
           window.scrollTo(x, y);
 
-          // Wait for scroll to complete and any animations to finish
-          await this.waitForScrollAndAnimations();
+          // Wait for scroll to settle and content to render
+          await this.waitForScrollSettled(x, y);
+          // extra small delay to ensure paints completed on heavy pages
+          await this.wait(50);
 
           // Capture visible area
           const dataUrl = await this.captureVisibleArea();
@@ -143,12 +155,35 @@ class ContentScriptController {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
-        if (this.ctx) {
-          this.ctx.drawImage(img, x, y);
-          resolve();
-        } else {
+        if (!this.ctx || !this.canvas) {
           reject(new Error('Canvas 上下文不可用'));
+          return;
         }
+
+        // Account for device pixel ratio. captureVisibleTab returns bitmap in device pixels.
+        const scaleX = img.naturalWidth / this.viewportWidth;
+        const scaleY = img.naturalHeight / this.viewportHeight;
+
+        // Destination size within page bounds (CSS pixels)
+        const destW = Math.min(this.viewportWidth, this.pageWidth - x);
+        const destH = Math.min(this.viewportHeight, this.pageHeight - y);
+
+        // Corresponding source rectangle (device pixels)
+        const srcW = Math.round(destW * scaleX);
+        const srcH = Math.round(destH * scaleY);
+
+        this.ctx.drawImage(
+          img,
+          0,
+          0,
+          srcW,
+          srcH,
+          x,
+          y,
+          destW,
+          destH
+        );
+        resolve();
       };
       img.onerror = () => reject(new Error('图片加载失败'));
       img.src = dataUrl;
@@ -156,41 +191,172 @@ class ContentScriptController {
   }
 
   private async startRegionSelection(): Promise<string> {
-    // This would implement a region selection UI
-    // For now, just return visible area capture
-    return this.captureVisibleArea();
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed;
+      inset: 0;
+      z-index: 2147483647;
+      cursor: crosshair;
+      background: rgba(0,0,0,0.05);
+    `;
+    document.documentElement.appendChild(overlay);
+
+    const selection = document.createElement('div');
+    selection.style.cssText = `
+      position: absolute;
+      border: 2px solid #4C8BF5;
+      background: rgba(76,139,245,0.15);
+      pointer-events: none;
+    `;
+    overlay.appendChild(selection);
+
+    const start = { x: 0, y: 0 };
+    const end = { x: 0, y: 0 };
+
+    const toRect = () => {
+      const x1 = Math.min(start.x, end.x);
+      const y1 = Math.min(start.y, end.y);
+      const x2 = Math.max(start.x, end.x);
+      const y2 = Math.max(start.y, end.y);
+      return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      start.x = e.clientX;
+      start.y = e.clientY;
+      end.x = e.clientX;
+      end.y = e.clientY;
+      selection.style.left = `${start.x}px`;
+      selection.style.top = `${start.y}px`;
+      selection.style.width = '0px';
+      selection.style.height = '0px';
+      overlay.addEventListener('mousemove', onMouseMove);
+      e.preventDefault();
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      end.x = e.clientX;
+      end.y = e.clientY;
+      const r = toRect();
+      selection.style.left = `${r.x}px`;
+      selection.style.top = `${r.y}px`;
+      selection.style.width = `${r.w}px`;
+      selection.style.height = `${r.h}px`;
+    };
+
+    const cleanup = () => {
+      overlay.removeEventListener('mousemove', onMouseMove);
+      overlay.removeEventListener('mousedown', onMouseDown);
+      if (overlay.parentElement) overlay.parentElement.removeChild(overlay);
+    };
+
+    const result = await new Promise<string>((resolve, reject) => {
+      const onMouseUp = async (e: MouseEvent) => {
+        end.x = e.clientX;
+        end.y = e.clientY;
+        try {
+          const rect = toRect();
+          if (rect.w < 5 || rect.h < 5) {
+            cleanup();
+            // too small, fallback to visible
+            const url = await this.captureVisibleArea();
+            resolve(url);
+            return;
+          }
+
+          // capture visible and crop to rect
+          const fullUrl = await this.captureVisibleArea();
+          const img = new Image();
+          img.onload = () => {
+            // compute DPR scale
+            const scaleX = img.naturalWidth / window.innerWidth;
+            const scaleY = img.naturalHeight / window.innerHeight;
+
+            const cropCanvas = document.createElement('canvas');
+            cropCanvas.width = Math.round(rect.w * scaleX);
+            cropCanvas.height = Math.round(rect.h * scaleY);
+            const cctx = cropCanvas.getContext('2d');
+            if (!cctx) throw new Error('无法创建 Canvas 上下文');
+            cctx.drawImage(
+              img,
+              Math.round(rect.x * scaleX),
+              Math.round(rect.y * scaleY),
+              Math.round(rect.w * scaleX),
+              Math.round(rect.h * scaleY),
+              0,
+              0,
+              Math.round(rect.w * scaleX),
+              Math.round(rect.h * scaleY)
+            );
+            const data = cropCanvas.toDataURL('image/png');
+            resolve(data);
+          };
+          img.onerror = () => reject(new Error('区域截图失败'));
+          img.src = fullUrl;
+        } catch (err) {
+          reject(err as Error);
+        } finally {
+          cleanup();
+        }
+      };
+      overlay.addEventListener('mousedown', onMouseDown);
+      // esc to cancel
+      const onKey = (ke: KeyboardEvent) => {
+        if (ke.key === 'Escape') {
+          cleanup();
+          document.removeEventListener('keydown', onKey);
+          reject(new Error('取消'));
+        }
+      };
+      document.addEventListener('keydown', onKey);
+      const mouseUpListener = (evt: Event) => {
+        overlay.removeEventListener('mouseup', mouseUpListener);
+        onMouseUp(evt as MouseEvent);
+      };
+      overlay.addEventListener('mouseup', mouseUpListener, { once: true });
+    });
+
+    return result;
   }
 
   private wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  private async waitForScrollAndAnimations(): Promise<void> {
-    // Wait for scroll to complete
-    await this.wait(100); // Initial wait
-    const checkScroll = () => {
-      const currentScrollX = window.scrollX;
-      const currentScrollY = window.scrollY;
-      if (currentScrollX === window.scrollX && currentScrollY === window.scrollY) {
-        // Scroll has stopped
-        return true;
-      }
-      // Check if any animation frames are pending
-      return requestAnimationFrame(checkScroll);
-    };
-    await checkScroll();
+  private async waitForScrollSettled(targetX: number, targetY: number): Promise<void> {
+    const start = Date.now();
+    const timeoutMs = 2000;
 
-    // Wait for any pending animations to finish
-    await this.wait(100); // Initial wait
-    const checkAnimations = () => {
-      const currentAnimationFrame = requestAnimationFrame(checkAnimations);
-      if (currentAnimationFrame === 0) {
-        // No more animation frames, all animations have finished
-        return true;
-      }
-      return false;
-    };
-    await checkAnimations();
+    // resolve after two consecutive frames where position is stable and close to target
+    await new Promise<void>((resolve) => {
+      let lastX = -1;
+      let lastY = -1;
+      let stableFrames = 0;
+
+      const tick = () => {
+        const cx = Math.round(window.scrollX);
+        const cy = Math.round(window.scrollY);
+
+        if (cx === lastX && cy === lastY) {
+          stableFrames += 1;
+        } else {
+          stableFrames = 0;
+        }
+        lastX = cx;
+        lastY = cy;
+
+        const closeToTarget = Math.abs(cx - targetX) < 2 && Math.abs(cy - targetY) < 2;
+        const timedOut = Date.now() - start > timeoutMs;
+
+        if ((closeToTarget && stableFrames >= 2) || timedOut) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
   }
 }
 

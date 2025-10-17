@@ -11,7 +11,7 @@ interface ScreenshotData {
 
 interface CaptureMessage {
   action: 'capture' | 'captureVisibleTab';
-  mode?: 'visible' | 'full';
+  mode?: 'visible' | 'full' | 'region';
 }
 
 interface GetHistoryMessage {
@@ -80,7 +80,7 @@ chrome.runtime.onMessage.addListener((message: Message, sender, sendResponse) =>
 
 // 截图处理函数
 async function handleCapture(
-  mode: 'visible' | 'full',
+  mode: 'visible' | 'full' | 'region',
   tab?: chrome.tabs.Tab
 ): Promise<{ success: boolean; dataUrl?: string; filename?: string; error?: string }> {
   try {
@@ -95,20 +95,43 @@ async function handleCapture(
       targetTab = tabs[0];
     }
 
-    let dataUrl: string;
+  let dataUrl: string | undefined;
+
+  // Load settings
+  const settings = await loadSettings();
 
     if (mode === 'visible') {
       // 截取可视区域
       dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId!, {
-        format: 'png',
-        quality: 100,
+        format: settings.imageQuality < 100 ? 'jpeg' : 'png',
+        quality: Math.min(100, Math.max(50, settings.imageQuality)),
       });
-    } else {
+    } else if (mode === 'full') {
       // 全页截图 - 通过content script实现
       try {
-        const response = await chrome.tabs.sendMessage(targetTab.id!, {
+        if (!canUseContentScript(targetTab.url || '')) {
+          throw new Error('Content script not allowed on this page');
+        }
+
+        // 先尝试发送；如果失败再注入再重试
+        let response = await safeSendMessage<ContentResponse>(targetTab.id!, {
           action: 'captureFullPage',
+          options: {
+            quality: Math.min(1, Math.max(0.5, settings.imageQuality / 100)),
+            format: settings.imageQuality < 100 ? 'jpeg' : 'png',
+          },
         });
+
+        if (!response) {
+          await ensureContentScript(targetTab.id!);
+          response = await safeSendMessage<ContentResponse>(targetTab.id!, {
+            action: 'captureFullPage',
+            options: {
+              quality: Math.min(1, Math.max(0.5, settings.imageQuality / 100)),
+              format: settings.imageQuality < 100 ? 'jpeg' : 'png',
+            },
+          });
+        }
 
         if (!response || !response.success) {
           throw new Error(response?.error || 'Full page capture failed');
@@ -119,31 +142,79 @@ async function handleCapture(
         // 如果content script不可用，回退到可视区域截图
         console.warn('Content script not available, falling back to visible area capture');
         dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId!, {
-          format: 'png',
-          quality: 100,
+          format: settings.imageQuality < 100 ? 'jpeg' : 'png',
+          quality: Math.min(100, Math.max(50, settings.imageQuality)),
         });
       }
+    } else if (mode === 'region') {
+      // 区域选择截图
+      try {
+        if (!canUseContentScript(targetTab.url || '')) {
+          throw new Error('Content script not allowed on this page');
+        }
+
+        let response = await safeSendMessage<ContentResponse>(targetTab.id!, {
+          action: 'selectRegion',
+          options: {
+            quality: Math.min(1, Math.max(0.5, settings.imageQuality / 100)),
+            format: settings.imageQuality < 100 ? 'jpeg' : 'png',
+          },
+        });
+
+        if (!response) {
+          await ensureContentScript(targetTab.id!);
+          response = await safeSendMessage<ContentResponse>(targetTab.id!, {
+            action: 'selectRegion',
+            options: {
+              quality: Math.min(1, Math.max(0.5, settings.imageQuality / 100)),
+              format: settings.imageQuality < 100 ? 'jpeg' : 'png',
+            },
+          });
+        }
+
+        if (!response || !response.success) {
+          throw new Error(response?.error || 'Region capture failed');
+        }
+        dataUrl = response.dataUrl;
+      } catch {
+        console.warn('Region selection not available, falling back to visible area capture');
+        dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId!, {
+          format: settings.imageQuality < 100 ? 'jpeg' : 'png',
+          quality: Math.min(100, Math.max(50, settings.imageQuality)),
+        });
+      }
+    } else {
+      throw new Error('Unknown capture mode');
     }
 
     // 生成文件名
     const timestamp = Date.now();
     const date = new Date(timestamp);
-    const filename = `screenshot_${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}_${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}_${timestamp}.png`;
+    const filename = formatFilename(settings.filenamePattern, {
+      date,
+      tab: targetTab,
+      timestamp,
+      ext: (settings.imageQuality < 100 ? 'jpg' : 'png'),
+    });
 
     // 保存到历史记录
     const screenshotData: ScreenshotData = {
       id: `screenshot_${timestamp}`,
-      dataUrl,
+  dataUrl: dataUrl!,
       timestamp,
       filename,
       url: targetTab.url || '',
       title: targetTab.title || '',
     };
 
-    await saveScreenshot(screenshotData);
+    if (settings.saveHistory) {
+      await saveScreenshot(screenshotData, settings.maxHistory);
+    }
 
     // 自动下载
-    await downloadScreenshot(dataUrl, filename);
+    if (settings.autoDownload && dataUrl) {
+      await downloadScreenshot(dataUrl, filename);
+    }
 
     return {
       success: true,
@@ -175,9 +246,10 @@ async function handleCaptureVisibleTab(
       targetTab = tabs[0];
     }
 
+    const settings = await loadSettings();
     const dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId!, {
-      format: 'png',
-      quality: 100,
+      format: settings.imageQuality < 100 ? 'jpeg' : 'png',
+      quality: Math.min(100, Math.max(50, settings.imageQuality)),
     });
 
     return {
@@ -194,7 +266,7 @@ async function handleCaptureVisibleTab(
 }
 
 // 保存截图到本地存储
-async function saveScreenshot(screenshot: ScreenshotData): Promise<void> {
+async function saveScreenshot(screenshot: ScreenshotData, maxHistory: number = 50): Promise<void> {
   try {
     const result = await chrome.storage.local.get(['screenshots']);
     const screenshots: ScreenshotData[] = result.screenshots || [];
@@ -202,8 +274,9 @@ async function saveScreenshot(screenshot: ScreenshotData): Promise<void> {
     screenshots.unshift(screenshot); // 添加到开头
 
     // 限制历史记录数量（最多保存50张）
-    if (screenshots.length > 50) {
-      screenshots.splice(50);
+    const limit = Math.max(10, Math.min(200, maxHistory));
+    if (screenshots.length > limit) {
+      screenshots.splice(limit);
     }
 
     await chrome.storage.local.set({ screenshots });
@@ -275,3 +348,114 @@ async function deleteScreenshot(id: string): Promise<{
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Screenshot Plugin installed');
 });
+
+// Settings helpers
+interface Settings {
+  captureMode: 'visible' | 'full';
+  autoDownload: boolean;
+  saveHistory: boolean;
+  maxHistory: number;
+  imageQuality: number; // 50-100
+  filenamePattern: string; // e.g. screenshot_{date}_{time}
+}
+
+async function loadSettings(): Promise<Settings> {
+  const defaults: Settings = {
+    captureMode: 'visible',
+    autoDownload: true,
+    saveHistory: true,
+    maxHistory: 50,
+    imageQuality: 100,
+    filenamePattern: 'screenshot_{date}_{time}',
+  };
+  try {
+    const result = await chrome.storage.local.get(['settings']);
+    return { ...defaults, ...(result.settings || {}) } as Settings;
+  } catch {
+    return defaults;
+  }
+}
+
+function sanitizeFilenamePart(str: string): string {
+  return str
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+}
+
+function replaceTokenAll(input: string, token: string, value: string): string {
+  return input.split(token).join(value);
+}
+
+function formatFilename(pattern: string, ctx: { date: Date; tab?: chrome.tabs.Tab; timestamp: number; ext: string }): string {
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  const yyyy = ctx.date.getFullYear();
+  const MM = pad2(ctx.date.getMonth() + 1);
+  const dd = pad2(ctx.date.getDate());
+  const HH = pad2(ctx.date.getHours());
+  const mm = pad2(ctx.date.getMinutes());
+  const ss = pad2(ctx.date.getSeconds());
+
+  const dateStr = `${yyyy}${MM}${dd}`;
+  const timeStr = `${HH}${mm}${ss}`;
+  const title = sanitizeFilenamePart(ctx.tab?.title || 'untitled');
+  const urlHost = (() => {
+    try { return ctx.tab?.url ? new URL(ctx.tab.url).hostname : 'page'; } catch { return 'page'; }
+  })();
+
+  let base = pattern || 'screenshot_{date}_{time}';
+  base = replaceTokenAll(base, '{date}', dateStr);
+  base = replaceTokenAll(base, '{time}', timeStr);
+  base = replaceTokenAll(base, '{title}', title);
+  base = replaceTokenAll(base, '{url}', urlHost);
+  base = replaceTokenAll(base, '{timestamp}', String(ctx.timestamp));
+
+  const sanitized = sanitizeFilenamePart(base || 'screenshot');
+  return `${sanitized}.${ctx.ext}`;
+}
+
+// Content script helpers
+function canUseContentScript(url: string): boolean {
+  try {
+    const u = new URL(url);
+    // Disallow special schemes where content scripts cannot run
+    const blocked = new Set(['chrome:', 'edge:', 'about:', 'opera:', 'view-source:', 'chrome-extension:']);
+    return !blocked.has(u.protocol);
+  } catch {
+    return false;
+  }
+}
+
+async function ensureContentScript(tabId: number): Promise<void> {
+  try {
+    const injection = {
+      target: { tabId },
+      files: ['content/content.js'],
+      world: 'ISOLATED',
+    } as unknown;
+  await (chrome.scripting.executeScript as unknown as Function)(injection);
+  } catch (e) {
+    // Best-effort: ignore injection errors, caller will handle fallback
+    console.warn('ensureContentScript failed:', e);
+  }
+}
+
+type GenericMessage = Record<string, unknown>;
+type ContentResponse = { success: boolean; dataUrl?: string; error?: string };
+async function safeSendMessage<T = unknown>(tabId: number, message: GenericMessage): Promise<T | undefined> {
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.sendMessage(tabId, message, (response) => {
+        if (chrome.runtime.lastError) {
+          // Receiving end does not exist -> undefined
+          resolve(undefined);
+          return;
+        }
+        resolve(response as T);
+      });
+    } catch {
+      resolve(undefined);
+    }
+  });
+}
