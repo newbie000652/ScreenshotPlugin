@@ -121,16 +121,24 @@
               </div>
 
               <div class="setting-item">
+                <label for="image-format">图片格式：</label>
+                <select id="image-format" class="setting-select">
+                  <option value="png">PNG</option>
+                  <option value="jpeg">JPEG</option>
+                </select>
+              </div>
+
+              <div class="setting-item">
                 <label for="image-quality">图片质量：</label>
                 <input
                   type="range"
                   id="image-quality"
                   min="50"
                   max="100"
-                  value="90"
+                  value="100"
                   class="setting-range"
                 />
-                <span id="quality-value" class="range-value">90%</span>
+                <span id="quality-value" class="range-value">100%</span>
               </div>
             </section>
           </div>
@@ -154,6 +162,7 @@
           <div class="settings-actions">
             <button id="save-settings" class="btn btn-primary">保存设置</button>
             <button id="reset-settings" class="btn btn-outline">重置为默认</button>
+            <span id="unsaved-hint" class="unsaved-hint" hidden>有未保存的更改</span>
           </div>
         </div>
 

@@ -15,7 +15,9 @@
     "lint": "eslint src --ext .ts,.js",
     "lint:fix": "eslint src --ext .ts,.js --fix",
     "format": "prettier --write src/**/*.{ts,js,html,css,json}",
+    "typecheck": "tsc --noEmit",
     "test": "vitest",
+    "test:ci": "vitest run",
     "test:e2e": "playwright test"
   },
   "devDependencies": {

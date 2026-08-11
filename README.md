@@ -21,12 +21,14 @@ Outputs to `dist/` and copies static assets.
 
 ## Test
 
-- Unit tests (placeholder): `npm run test`
+- Unit tests: `npm run test` (Vitest)
+- Type check: `npm run typecheck`
 - Lint: `npm run lint`
 
 ## Features
 
 - Visible area, full page, and region capture
+- PNG / JPEG format selection (popup and options), persisted in settings
 - History management and quick download
 - Adaptive popup layout with accessible keyboard navigation
 
