@@ -1,5 +1,7 @@
 ## Screenshot Plugin 设计规范文档
 
+> ⚠️ **本文档为早期设计稿（2026-08-11 审计核对）**：部分内容已过时——"本地下载（PNG 格式）"已支持 PNG/JPEG 可选；"GitHub Actions 构建/测试"与"自动化测试覆盖"已实现（见 `.github/workflows/ci.yml` 与 `src/utils/*.test.ts`）。功能与现状以代码和 README 为准。
+
 ### 一、项目概述
 
 * **插件名称**：ScreenshotPlugin

@@ -100,3 +100,4 @@ jspm_packages/
 tmp/
 temp/
 package-lock.json
+AGENTS.md
