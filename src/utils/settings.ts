@@ -1,4 +1,5 @@
 import type { Settings, CaptureMode } from '../types';
+import { deriveFormatFromQuality, normalizeImageFormat } from './image-format';
 
 export const DEFAULT_SETTINGS: Settings = {
   captureMode: 'visible',
@@ -6,13 +7,31 @@ export const DEFAULT_SETTINGS: Settings = {
   saveHistory: true,
   maxHistory: 50,
   imageQuality: 100,
+  imageFormat: 'png',
   filenamePattern: 'screenshot_{date}_{time}',
 };
+
+/**
+ * Merge raw (possibly partial, possibly legacy) stored settings with defaults
+ * and normalize every field. Legacy settings without `imageFormat` are
+ * migrated via the old quality heuristic so behavior does not regress.
+ */
+export function normalizeSettings(raw: Partial<Settings> | undefined): Settings {
+  const settings: Settings = { ...DEFAULT_SETTINGS, ...raw };
+  settings.captureMode = normalizeCaptureMode(settings.captureMode);
+  // Only derive from the legacy quality heuristic when the stored settings
+  // had no explicit imageFormat (spread of DEFAULT_SETTINGS always fills it).
+  const hasExplicitFormat = raw?.imageFormat !== undefined;
+  settings.imageFormat = hasExplicitFormat
+    ? normalizeImageFormat(raw.imageFormat)
+    : normalizeImageFormat(deriveFormatFromQuality(settings.imageQuality));
+  return settings;
+}
 
 export async function loadSettings(): Promise<Settings> {
   try {
     const result = await chrome.storage.local.get(['settings']);
-    return { ...DEFAULT_SETTINGS, ...(result.settings as Partial<Settings> | undefined) };
+    return normalizeSettings(result.settings as Partial<Settings> | undefined);
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

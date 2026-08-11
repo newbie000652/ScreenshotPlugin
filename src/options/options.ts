@@ -1,6 +1,6 @@
 // Options Page Script for Screenshot Plugin
 
-import type { CaptureMode, ContentResponse, HistoryResponse, ScreenshotData, Settings } from '../types';
+import type { CaptureMode, ContentResponse, HistoryResponse, ImageFormat, ScreenshotData, Settings } from '../types';
 import { DEFAULT_SETTINGS, loadSettings as readSettings, normalizeCaptureMode } from '../utils/settings';
 
 type OptionsMessage = { action: 'getHistory' } | { action: 'deleteScreenshot'; id: string };
@@ -115,6 +115,14 @@ class OptionsController {
       }
     });
 
+    // Sync slider disabled state when image format changes (PNG has no quality control)
+    const imageFormat = document.getElementById('image-format') as HTMLSelectElement;
+    imageFormat?.addEventListener('change', () => {
+      if (imageQuality) {
+        imageQuality.disabled = imageFormat.value !== 'jpeg';
+      }
+    });
+
     // Settings buttons
     const saveSettingsBtn = document.getElementById('save-settings');
     const resetSettingsBtn = document.getElementById('reset-settings');
@@ -162,6 +170,7 @@ class OptionsController {
     const autoDownload = document.getElementById('auto-download') as HTMLInputElement;
     const saveHistory = document.getElementById('save-history') as HTMLInputElement;
     const maxHistory = document.getElementById('max-history') as HTMLInputElement;
+    const imageFormat = document.getElementById('image-format') as HTMLSelectElement;
     const imageQuality = document.getElementById('image-quality') as HTMLInputElement;
     const qualityValue = document.getElementById('quality-value');
     const filenamePattern = document.getElementById('filename-pattern') as HTMLInputElement;
@@ -172,8 +181,10 @@ class OptionsController {
     if (autoDownload) autoDownload.checked = this.settings.autoDownload;
     if (saveHistory) saveHistory.checked = this.settings.saveHistory;
     if (maxHistory) maxHistory.value = this.settings.maxHistory.toString();
+    if (imageFormat) imageFormat.value = this.settings.imageFormat;
     if (imageQuality) {
       imageQuality.value = this.settings.imageQuality.toString();
+      imageQuality.disabled = this.settings.imageFormat !== 'jpeg';
       if (qualityValue) {
         qualityValue.textContent = `${this.settings.imageQuality}%`;
       }
@@ -187,6 +198,7 @@ class OptionsController {
       const autoDownload = document.getElementById('auto-download') as HTMLInputElement;
       const saveHistory = document.getElementById('save-history') as HTMLInputElement;
       const maxHistory = document.getElementById('max-history') as HTMLInputElement;
+      const imageFormat = document.getElementById('image-format') as HTMLSelectElement;
       const imageQuality = document.getElementById('image-quality') as HTMLInputElement;
       const filenamePattern = document.getElementById('filename-pattern') as HTMLInputElement;
 
@@ -205,6 +217,7 @@ class OptionsController {
       }
 
       const selectedMode = defaultMode?.value as CaptureMode | undefined;
+      const selectedFormat: ImageFormat = imageFormat?.value === 'jpeg' ? 'jpeg' : 'png';
 
       this.settings = {
         ...this.settings,
@@ -213,6 +226,7 @@ class OptionsController {
         saveHistory: saveHistory?.checked ?? DEFAULT_SETTINGS.saveHistory,
         maxHistory: maxHistoryValue,
         imageQuality: imageQualityValue,
+        imageFormat: selectedFormat,
         filenamePattern: filenamePattern?.value?.trim() || DEFAULT_SETTINGS.filenamePattern,
       };
 
@@ -321,6 +335,7 @@ class OptionsController {
     const date = new Date(screenshot.timestamp);
     const formattedDate = date.toLocaleDateString('zh-CN');
     const formattedTime = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    const formatLabel = screenshot.dataUrl.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
 
     return `
       <div class="screenshot-item" data-id="${screenshot.id}">
@@ -329,7 +344,7 @@ class OptionsController {
           <div class="screenshot-title">${screenshot.title || '无标题'}</div>
           <div class="screenshot-meta">
             <span class="screenshot-date">${formattedDate} ${formattedTime}</span>
-            <span class="screenshot-size">PNG</span>
+            <span class="screenshot-size">${formatLabel}</span>
           </div>
           <div class="screenshot-actions">
             <button class="action-btn btn-primary" data-action="download">下载</button>

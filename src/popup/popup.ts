@@ -1,12 +1,13 @@
 // Popup Script for Screenshot Plugin
 
-import type { CaptureMode, CaptureResponse } from '../types';
+import type { CaptureMode, CaptureResponse, ImageFormat } from '../types';
 import { loadSettings, normalizeCaptureMode } from '../utils/settings';
 
 class PopupController {
   private captureBtn!: HTMLButtonElement;
   private historyBtn!: HTMLButtonElement;
   private modeSelect!: HTMLSelectElement;
+  private formatSelect!: HTMLSelectElement;
   private statusDiv!: HTMLDivElement;
   private statusText!: HTMLSpanElement;
   private previewDiv!: HTMLDivElement;
@@ -26,6 +27,7 @@ class PopupController {
     this.captureBtn = document.getElementById('capture-btn') as HTMLButtonElement;
     this.historyBtn = document.getElementById('history-btn') as HTMLButtonElement;
     this.modeSelect = document.getElementById('capture-mode') as HTMLSelectElement;
+    this.formatSelect = document.getElementById('capture-format') as HTMLSelectElement;
     this.statusDiv = document.getElementById('status') as HTMLDivElement;
     this.statusText = document.getElementById('status-text') as HTMLSpanElement;
     this.previewDiv = document.getElementById('preview') as HTMLDivElement;
@@ -40,6 +42,7 @@ class PopupController {
       this.captureBtn,
       this.historyBtn,
       this.modeSelect,
+      this.formatSelect,
       this.statusDiv,
       this.statusText,
       this.previewDiv,
@@ -76,6 +79,9 @@ class PopupController {
     if (this.modeSelect) {
       this.modeSelect.addEventListener('change', () => this.saveSettings());
     }
+    if (this.formatSelect) {
+      this.formatSelect.addEventListener('change', () => this.saveSettings());
+    }
     if (this.downloadBtn) {
       this.downloadBtn.addEventListener('click', () => this.downloadCurrentImage());
     }
@@ -109,6 +115,7 @@ class PopupController {
     try {
       const settings = await loadSettings();
       this.modeSelect.value = normalizeCaptureMode(settings.captureMode);
+      this.formatSelect.value = settings.imageFormat;
     } catch (error) {
       console.error('Failed to load settings:', error);
     }
@@ -121,6 +128,7 @@ class PopupController {
       const settings = {
         ...(existing.settings || {}),
         captureMode: normalizeCaptureMode(this.modeSelect.value as CaptureMode),
+        imageFormat: this.formatSelect.value as ImageFormat,
       };
       await chrome.storage.local.set({ settings, captureMode: settings.captureMode });
     } catch (error) {

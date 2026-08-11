@@ -35,7 +35,7 @@ class ContentScriptController {
       }
 
       if (message.action === 'selectRegion') {
-        this.startRegionSelection()
+        this.startRegionSelection(message.options)
           .then((dataUrl) => sendResponse({ success: true, dataUrl }))
           .catch((error) => sendResponse({ success: false, error: error.message }));
         return true;
@@ -274,7 +274,7 @@ class ContentScriptController {
     });
   }
 
-  private async startRegionSelection(): Promise<string> {
+  private async startRegionSelection(options: CaptureOptions = {}): Promise<string> {
     // Create overlay
     const overlay = document.createElement('div');
     overlay.style.cssText = `
@@ -351,6 +351,8 @@ class ContentScriptController {
 
           // capture visible and crop to rect
           const fullUrl = await this.captureVisibleArea();
+          const format = options.format === 'jpeg' ? 'jpeg' : 'png';
+          const quality = typeof options.quality === 'number' ? options.quality : 0.9;
           const img = new Image();
           img.onload = () => {
             // compute DPR scale
@@ -373,7 +375,7 @@ class ContentScriptController {
               Math.round(rect.w * scaleX),
               Math.round(rect.h * scaleY)
             );
-            const data = cropCanvas.toDataURL('image/png');
+            const data = cropCanvas.toDataURL(`image/${format}`, quality);
             resolve(data);
           };
           img.onerror = () => reject(new Error('区域截图失败'));

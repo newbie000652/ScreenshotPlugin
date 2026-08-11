@@ -1,5 +1,7 @@
 export type CaptureMode = 'visible' | 'full' | 'region';
 
+export type ImageFormat = 'png' | 'jpeg';
+
 export interface ScreenshotData {
   id: string;
   dataUrl: string;
@@ -15,6 +17,7 @@ export interface Settings {
   saveHistory: boolean;
   maxHistory: number;
   imageQuality: number;
+  imageFormat: ImageFormat;
   filenamePattern: string;
 }
 

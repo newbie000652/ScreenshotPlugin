@@ -1,7 +1,8 @@
 // Background service worker orchestrates capture requests and history management
 
-import type { CaptureMode, CaptureResponse, ContentResponse, HistoryResponse, ScreenshotData } from './types';
+import type { CaptureMode, CaptureResponse, ContentResponse, HistoryResponse, ImageFormat, ScreenshotData } from './types';
 import { loadSettings, formatFilename } from './utils/settings';
+import { resolveImageFormat } from './utils/image-format';
 import { canUseContentScript, ensureContentScript, safeSendMessage } from './utils/content-script';
 
 interface CaptureMessage {
@@ -68,16 +69,16 @@ async function handleCapture(mode: CaptureMode, tab?: chrome.tabs.Tab): Promise<
   try {
     const targetTab = await resolveTargetTab(tab);
     const settings = await loadSettings();
-    const isJpeg = settings.imageQuality < 100;
+    const format = resolveImageFormat(settings);
     const windowId = getWindowId(targetTab);
 
     let dataUrl: string | undefined;
     if (mode === 'visible') {
-      dataUrl = await captureVisibleArea(windowId, settings.imageQuality);
+      dataUrl = await captureVisibleArea(windowId, format, settings.imageQuality);
     } else if (mode === 'full') {
-      dataUrl = await captureFullPage(targetTab, settings.imageQuality);
+      dataUrl = await captureFullPage(targetTab, format, settings.imageQuality);
     } else if (mode === 'region') {
-      dataUrl = await captureRegion(targetTab, settings.imageQuality);
+      dataUrl = await captureRegion(targetTab, format, settings.imageQuality);
     }
 
     if (!dataUrl) {
@@ -89,7 +90,7 @@ async function handleCapture(mode: CaptureMode, tab?: chrome.tabs.Tab): Promise<
       date: new Date(timestamp),
       tab: targetTab,
       timestamp,
-      ext: isJpeg ? 'jpg' : 'png',
+      ext: format === 'jpeg' ? 'jpg' : 'png',
     });
 
     const screenshotData: ScreenshotData = {
@@ -127,38 +128,38 @@ async function resolveTargetTab(tab?: chrome.tabs.Tab): Promise<chrome.tabs.Tab>
   return resolved;
 }
 
-async function captureVisibleArea(windowId: number, quality: number): Promise<string> {
+async function captureVisibleArea(windowId: number, format: ImageFormat, quality: number): Promise<string> {
   return chrome.tabs.captureVisibleTab(windowId, {
-    format: quality < 100 ? 'jpeg' : 'png',
+    format,
     quality: clampQuality(quality),
   });
 }
 
-async function captureFullPage(tab: chrome.tabs.Tab, quality: number): Promise<string | undefined> {
+async function captureFullPage(tab: chrome.tabs.Tab, format: ImageFormat, quality: number): Promise<string | undefined> {
   if (!canUseContentScript(tab.url || '')) {
     console.warn('Full page capture unavailable on this page, falling back to visible area');
-    return captureVisibleArea(getWindowId(tab), quality);
+    return captureVisibleArea(getWindowId(tab), format, quality);
   }
 
-  const response = await executeContentCapture(tab, 'captureFullPage', quality);
+  const response = await executeContentCapture(tab, 'captureFullPage', format, quality);
   if (!response?.success || !response.dataUrl) {
     console.warn('Full page capture failed, falling back to visible area');
-    return captureVisibleArea(getWindowId(tab), quality);
+    return captureVisibleArea(getWindowId(tab), format, quality);
   }
 
   return response.dataUrl;
 }
 
-async function captureRegion(tab: chrome.tabs.Tab, quality: number): Promise<string | undefined> {
+async function captureRegion(tab: chrome.tabs.Tab, format: ImageFormat, quality: number): Promise<string | undefined> {
   if (!canUseContentScript(tab.url || '')) {
     console.warn('Region capture unavailable on this page, falling back to visible area');
-    return captureVisibleArea(getWindowId(tab), quality);
+    return captureVisibleArea(getWindowId(tab), format, quality);
   }
 
-  const response = await executeContentCapture(tab, 'selectRegion', quality);
+  const response = await executeContentCapture(tab, 'selectRegion', format, quality);
   if (!response?.success || !response.dataUrl) {
     console.warn('Region capture failed, falling back to visible area');
-    return captureVisibleArea(getWindowId(tab), quality);
+    return captureVisibleArea(getWindowId(tab), format, quality);
   }
 
   return response.dataUrl;
@@ -167,6 +168,7 @@ async function captureRegion(tab: chrome.tabs.Tab, quality: number): Promise<str
 async function executeContentCapture(
   tab: chrome.tabs.Tab,
   action: 'captureFullPage' | 'selectRegion',
+  format: ImageFormat,
   quality: number
 ): Promise<ContentResponse | undefined> {
   if (tab.id === undefined) {
@@ -176,7 +178,7 @@ async function executeContentCapture(
     action,
     options: {
       quality: clampContentQuality(quality),
-      format: quality < 100 ? 'jpeg' : 'png',
+      format,
     },
   } as const;
 
@@ -192,7 +194,7 @@ async function handleCaptureVisibleTab(tab?: chrome.tabs.Tab): Promise<ContentRe
   try {
     const targetTab = await resolveTargetTab(tab);
     const settings = await loadSettings();
-    const dataUrl = await captureVisibleArea(getWindowId(targetTab), settings.imageQuality);
+    const dataUrl = await captureVisibleArea(getWindowId(targetTab), resolveImageFormat(settings), settings.imageQuality);
     return { success: true, dataUrl };
   } catch (error) {
     console.error('Capture visible tab error:', error);
